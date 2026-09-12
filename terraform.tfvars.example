@@ -1,0 +1,5 @@
+aws_region       = "us-east-1"
+instance_type    = "t2.micro"
+instance_name    = "terraform-ec2-demo"
+key_name         = ""
+allowed_ssh_cidr = "0.0.0.0/0"
