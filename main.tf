@@ -1,4 +1,4 @@
-# Look up the latest Amazon Linux 2023 AMI so we don't hardcode an AMI ID
+## Look up the latest Amazon Linux 2023 AMI so we don't hardcode an AMI ID
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
