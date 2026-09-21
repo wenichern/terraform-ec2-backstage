@@ -3,8 +3,12 @@ name: Terraform EC2 Deploy
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'ec2/**'                     # only trigger on EC2 changes
   pull_request:
     branches: [ main ]
+    paths:
+      - 'ec2/**'
   workflow_dispatch: {}
 
 permissions:
@@ -12,6 +16,10 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
+
+defaults:
+  run:
+    working-directory: ./ec2         # <-- run all steps inside ec2/
 
 jobs:
   terraform:
@@ -47,7 +55,6 @@ jobs:
       - name: Terraform Plan
         run: terraform plan -input=false
 
-      # Only apply on pushes to main, not on pull requests
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
