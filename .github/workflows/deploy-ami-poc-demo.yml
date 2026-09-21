@@ -12,12 +12,17 @@ on:
   workflow_dispatch:
     inputs:
       ami_id:
-        description: 'AMI ID to deploy (golden path fix)'
-        required: true
+        description: 'AMI ID to deploy (golden path fix). Leave empty to use terraform.tfvars'
+        required: false
         type: string
 
 permissions:
   contents: read
+
+# One run at a time: two concurrent applies against the same state can corrupt it.
+concurrency:
+  group: ami-poc-terraform
+  cancel-in-progress: false
 
 env:
   AWS_REGION: us-east-1
@@ -35,6 +40,16 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # The input is passed through env, never pasted into the shell script, and must look like an AMI ID.
+      - name: Validate AMI input
+        env:
+          AMI_ID: ${{ github.event.inputs.ami_id }}
+        run: |
+          if [ -n "$AMI_ID" ] && ! [[ "$AMI_ID" =~ ^ami-[0-9a-f]{8,17}$ ]]; then
+            echo "Invalid AMI ID: $AMI_ID"
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -46,22 +61,34 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.11.0"
+          terraform_wrapper: false
 
+      # Requires:  backend "s3" { use_lockfile = true }  in the Terraform code,
+      # and a repository variable TF_STATE_BUCKET. Without remote state every run starts
+      # from empty state and tries to create another instance.
       - name: Terraform Init
-        run: terraform init -reconfigure
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=ami-poc-demo/ec2-demo.tfstate"
+          -backend-config="region=${{ env.AWS_REGION }}"
 
       - name: Terraform Validate
         run: terraform validate
 
       - name: Terraform Plan
+        env:
+          AMI_ID: ${{ github.event.inputs.ami_id }}
+          ALARM_TOPIC_ARN: ${{ secrets.ALARM_TOPIC_ARN }}
         run: |
-          terraform plan -input=false \
-            -var="alarm_topic_arn=${{ secrets.ALARM_TOPIC_ARN }}" \
-            ${{ github.event.inputs.ami_id != '' && format('-var=ami_id={0}', github.event.inputs.ami_id) || '' }}
+          EXTRA=()
+          if [ -n "$AMI_ID" ]; then EXTRA+=(-var "ami_id=$AMI_ID"); fi
+          terraform plan -input=false -out=tfplan \
+            -var "alarm_topic_arn=$ALARM_TOPIC_ARN" "${EXTRA[@]}"
 
+      # Applies exactly the plan shown above, not a fresh one.
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        run: |
-          terraform apply -auto-approve -input=false \
-            -var="alarm_topic_arn=${{ secrets.ALARM_TOPIC_ARN }}" \
-            ${{ github.event.inputs.ami_id != '' && format('-var=ami_id={0}', github.event.inputs.ami_id) || '' }}
+        run: terraform apply -input=false tfplan
+
+      # Phase 5 goes here: after a successful apply, update and close the ServiceNow ticket.
