@@ -1,0 +1,6 @@
+# Seed the demo with an OLDER Amazon Linux 2023 AMI so the checker reports drift.
+# Find one (oldest of the last few) with:
+#   aws ec2 describe-images --owners amazon \
+#     --filters "Name=name,Values=al2023-ami-2023*-x86_64" "Name=architecture,Values=x86_64" \
+#     --query 'sort_by(Images,&CreationDate)[:5].[ImageId,Name,CreationDate]' --output table
+ami_id = "ami-REPLACE_WITH_AN_OLDER_AMI"

@@ -3,7 +3,17 @@
 # aws_instance REPLACES the instance (brief downtime). Fine for a PoC; for real
 # workloads use a launch template + Auto Scaling group with instance refresh.
 
+terraform {
+  required_version = ">= 1.10"
 
+  # Partial config: bucket/key/region are passed with -backend-config (see workflow)
+  backend "s3" {
+    use_lockfile = true
+  }
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+}
 
 variable "region"            { default = "us-east-1" }
 variable "ami_id"            { type = string }
@@ -19,6 +29,9 @@ variable "alarm_topic_arn" {
   default     = ""
 }
 
+provider "aws" {
+  region = var.region
+}
 
 data "aws_vpc" "default" {
   default = true

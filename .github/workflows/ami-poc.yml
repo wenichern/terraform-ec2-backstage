@@ -1,0 +1,104 @@
+name: ami-poc
+
+on:
+  pull_request:
+    paths: ["ami-poc-demo/terraform/detect-platform/**", "ami-poc-demo/terraform/ec2-demo/**", "ami-poc-demo/checker/**", ".github/workflows/ami-poc.yml"]
+  push:
+    branches: [main]
+    paths: ["ami-poc-demo/terraform/detect-platform/**", "ami-poc-demo/terraform/ec2-demo/**", "ami-poc-demo/checker/**", ".github/workflows/ami-poc.yml"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC to AWS
+  contents: read
+
+concurrency:
+  group: ami-poc
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+jobs:
+  detect-platform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ami-poc-demo/terraform/detect-platform
+    outputs:
+      topic_arn: ${{ steps.out.outputs.topic_arn }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: AWS credentials (OIDC role, if AWS_ROLE_ARN variable is set)
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: AWS credentials (access-key secrets, otherwise)
+        if: ${{ vars.AWS_ROLE_ARN == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=detect-platform.tfstate"
+          -backend-config="region=${{ env.AWS_REGION }}"
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -input=false -out=tfplan -var "alert_email=${{ vars.ALERT_EMAIL }}"
+      - name: Apply (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: terraform apply -input=false tfplan
+      - name: Export topic ARN
+        id: out
+        run: echo "topic_arn=$(terraform output -raw sns_topic_arn 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+
+  ec2-demo:
+    needs: detect-platform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ami-poc-demo/terraform/ec2-demo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard against a missing or placeholder AMI
+        run: |
+          test -f terraform.tfvars || { echo "Copy terraform.tfvars.example to terraform.tfvars, set ami_id, and commit it"; exit 1; }
+          ! grep -q REPLACE terraform.tfvars || { echo "Set a real ami_id in terraform.tfvars"; exit 1; }
+      - name: AWS credentials (OIDC role, if AWS_ROLE_ARN variable is set)
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: AWS credentials (access-key secrets, otherwise)
+        if: ${{ vars.AWS_ROLE_ARN == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=ec2-demo.tfstate"
+          -backend-config="region=${{ env.AWS_REGION }}"
+      - run: terraform validate
+      - name: Plan
+        run: terraform plan -input=false -out=tfplan -var "alarm_topic_arn=${{ needs.detect-platform.outputs.topic_arn }}"
+      - name: Apply (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: terraform apply -input=false tfplan
+      # Phase 5 goes here: after a successful apply, update and close the ServiceNow ticket.
