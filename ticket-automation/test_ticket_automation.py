@@ -107,6 +107,3 @@ def test_multiple_records_in_one_invocation(monkeypatch):
     out = lh.handler(event, None)
     assert len(out["results"]) == 2
     assert {r["correlation_id"] for r in out["results"]} == {"ami-drift-a", "ami-drift-b"}
-EOF
-/tmp/v2/bin/python -m pytest -q test_ticket_automation.py 2>&1 | tail -15
-Output

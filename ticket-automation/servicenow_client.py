@@ -141,8 +141,3 @@ def get_client() -> ServiceNowClient:
     if os.environ.get("SERVICENOW_INSTANCE_URL"):
         return RealServiceNowClient()
     return MockServiceNowClient()
-EOF
-echo written
-Output
-
-written

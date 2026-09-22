@@ -1,0 +1,2 @@
+# Lambda uses only the standard library (urllib) - zero third-party runtime
+# dependencies, so no layer/packaging step is needed for deployment.

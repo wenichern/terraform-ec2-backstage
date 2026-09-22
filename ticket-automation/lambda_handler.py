@@ -73,8 +73,3 @@ def handler(event, context):
             results.append({"action": "ignored", "state": info["new_state"]})
 
     return {"results": results}
-EOF
-echo written
-Output
-
-written
