@@ -66,3 +66,21 @@ async def test_check_ec2_ami_found_and_not_found(monkeypatch):
 
         out2 = await srv.check_ec2_ami(instance_id="i-doesnotexist", region="us-east-1")
         assert "not found" in out2
+
+
+@pytest.mark.asyncio
+async def test_unknown_service_does_not_say_up_to_date(monkeypatch):
+    """Regression test: filtering by a service with zero matching instances must NOT
+    be reported as 'up to date' - that's indistinguishable from a real healthy result
+    and is misleading (caught via live testing: asking about a nonexistent service
+    returned a false 'fully up to date' answer)."""
+    monkeypatch.setattr(srv, "SSM_PARAM", PARAM)
+    with mock_aws():
+        _setup()  # real instances exist, tagged component:default/payments-api
+
+        out = await srv.list_outdated_ec2(service="payments-api", region="us-east-1")
+        # must NOT be the confident, misleading "all clear" phrasing...
+        assert not out.lower().startswith("all")
+        assert "latest AMI" not in out
+        # ...must clearly say nothing was found instead
+        assert "No running, tagged instances found" in out

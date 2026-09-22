@@ -37,6 +37,10 @@ async def list_outdated_ec2(service: str = "", region: str = "") -> str:
 
     if service:
         results = [r for r in results if r["service"] == service]
+        if not results:
+            return (f"No running, tagged instances found for service '{service}'. "
+                     "This could mean the service name doesn't match any backstage-entity "
+                     "tag, or it has no running instances right now - not that it's up to date.")
 
     outdated = [r for r in results if r["status"] != "ok"]
     if not outdated:
