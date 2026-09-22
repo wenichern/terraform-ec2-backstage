@@ -79,8 +79,8 @@ async def test_unknown_service_does_not_say_up_to_date(monkeypatch):
         _setup()  # real instances exist, tagged component:default/payments-api
 
         out = await srv.list_outdated_ec2(service="payments-api", region="us-east-1")
-        # must NOT be the confident, misleading "all clear" phrasing...
-        assert not out.lower().startswith("all")
+        # must NOT use the "up to date" status marker at all...
+        assert not out.startswith("UP TO DATE")
         assert "latest AMI" not in out
-        # ...must clearly say nothing was found instead
-        assert "No running, tagged instances found" in out
+        # ...must clearly be flagged as unknown/unverifiable instead
+        assert out.startswith("UNKNOWN")

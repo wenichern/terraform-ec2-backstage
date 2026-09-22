@@ -29,7 +29,13 @@ async def list_outdated_ec2(service: str = "", region: str = "") -> str:
     """List running EC2 instances whose AMI is out of date, deprecated, or missing.
     Optionally filter by service (the backstage-entity tag, e.g. 'component:default/payments-api').
     Use this to answer questions like "which EC2 need an AMI update" or "is <service> up to date".
-    Only reports; does not change anything."""
+    Only reports; does not change anything.
+
+    IMPORTANT: if a service filter matches zero instances, the result starts with
+    "UNKNOWN" - this means the service has no running, tagged instances (e.g. wrong name,
+    not deployed, or not yet tagged). This is NOT the same as being up to date and must
+    never be reported to the user as healthy, current, or up to date. Relay the UNKNOWN
+    result and its explanation as-is."""
     try:
         results = ac.scan(region or REGION, SSM_PARAM)
     except Exception as e:
@@ -38,14 +44,16 @@ async def list_outdated_ec2(service: str = "", region: str = "") -> str:
     if service:
         results = [r for r in results if r["service"] == service]
         if not results:
-            return (f"No running, tagged instances found for service '{service}'. "
-                     "This could mean the service name doesn't match any backstage-entity "
-                     "tag, or it has no running instances right now - not that it's up to date.")
+            return (f"UNKNOWN - no data for service '{service}'. "
+                     "No running instances are tagged with this service name, so its "
+                     "AMI status cannot be determined. Do NOT report this as up to date "
+                     "or healthy. Check the service name is correct, or that it has any "
+                     "running, tagged instances.")
 
     outdated = [r for r in results if r["status"] != "ok"]
     if not outdated:
         scope = f" for {service}" if service else ""
-        return f"All {len(results)} scanned instance(s){scope} are on the latest AMI."
+        return f"UP TO DATE - All {len(results)} scanned instance(s){scope} are on the latest AMI."
 
     lines = [f"{len(outdated)} of {len(results)} instance(s) need an AMI update:"]
     lines += [_row(r) for r in outdated]
