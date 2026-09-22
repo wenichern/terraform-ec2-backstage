@@ -84,14 +84,33 @@ def scan(region, ssm_param=DEFAULT_SSM_PARAM, include_untagged=False, now=None):
 
 
 def publish(region, results):
+    """Publish two shapes of the same metric:
+    - per-instance (InstanceId + Service dims): for investigation / the chat tool.
+    - per-service aggregate (Service dim only, MAX across its instances): for ASG-level
+      alarms, since CloudWatch alarms require an exact dimension-set match and an ASG
+      alarm has no single InstanceId to key on.
+    """
     cw = boto3.client("cloudwatch", region_name=region)
-    data = [{
+    per_instance = [{
         "MetricName": "AmiStatus",
         "Dimensions": [{"Name": "InstanceId", "Value": r["instance_id"]},
                        {"Name": "Service", "Value": r["service"] or "unknown"}],
         "Value": SEVERITY[r["status"]],
         "Unit": "None",
     } for r in results]
+
+    by_service = {}
+    for r in results:
+        svc = r["service"] or "unknown"
+        by_service[svc] = max(by_service.get(svc, 0), SEVERITY[r["status"]])
+    per_service = [{
+        "MetricName": "AmiStatus",
+        "Dimensions": [{"Name": "Service", "Value": svc}],
+        "Value": value,
+        "Unit": "None",
+    } for svc, value in by_service.items()]
+
+    data = per_instance + per_service
     for start in range(0, len(data), 500):
         cw.put_metric_data(Namespace=NAMESPACE, MetricData=data[start:start + 500])
 
